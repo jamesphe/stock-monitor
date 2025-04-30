@@ -4,6 +4,7 @@ import datetime
 import requests
 import pandas as pd
 import pandas_ta as ta
+import logging
 
 # 尝试导入akshare，如果失败则使用备选数据源
 try:
@@ -766,45 +767,78 @@ def evaluate_rules(config=None):
         config: 配置字典，如果为None则自动加载
     
     Returns:
-        list: 触发的告警消息列表
+        list: 触发的告警消息列表，包含详细的判断结果
     """
+    start_time = time.time()
+    logger = logging.getLogger("monitor")
+    logger.info("开始评估监控规则")
+    
     if config is None:
         config = load_config()
+        logger.debug("从配置文件加载规则")
+    else:
+        logger.debug("使用传入的规则配置")
         
     webhook_url = config.get("wecom_webhook", "")
     stocks = config.get("stocks", [])
     
+    logger.info(f"需要评估 {len(stocks)} 只股票")
+    
     alerts = []
     
-    for stock in stocks:
+    for idx, stock in enumerate(stocks):
+        stock_start_time = time.time()
         stock_code = stock.get("code", "")
         stock_name = stock.get("name", stock_code)
         
+        logger.info(f"[{idx+1}/{len(stocks)}] 开始评估股票: {stock_name}({stock_code})")
         print(f"\n{'='*50}")
-        print(f"开始评估股票: {stock_name}({stock_code})")
+        print(f"开始评估股票: {stock_name}({stock_code}) [{idx+1}/{len(stocks)}]")
         print(f"{'='*50}")
         
         if not stock_code:
+            logger.warning(f"股票代码为空，跳过: {stock}")
             print("股票代码为空，跳过")
             continue
             
         # 获取数据
+        logger.debug(f"获取 {stock_code} 的日线数据")
         print(f"获取 {stock_code} 的日线数据")
+        data_fetch_start = time.time()
         daily_data = fetch_data(stock_code, period="daily")
+        logger.debug(f"获取 {stock_code} 的5分钟线数据")
         print(f"获取 {stock_code} 的5分钟线数据")
         minute_data = fetch_data(stock_code, period="5min")
+        data_fetch_time = time.time() - data_fetch_start
+        logger.debug(f"数据获取耗时: {data_fetch_time:.2f}秒")
         
         # 输出获取到的数据概况
         if daily_data is not None:
-            print(f"日线数据: {len(daily_data)}行，日期范围: {daily_data['date'].min()} - {daily_data['date'].max()}")
-            print(f"最新收盘价: {daily_data['close'].iloc[-1]}")
+            date_min = daily_data['date'].min() if 'date' in daily_data.columns and not daily_data.empty else "未知"
+            date_max = daily_data['date'].max() if 'date' in daily_data.columns and not daily_data.empty else "未知"
+            logger.debug(f"日线数据: {len(daily_data)}行，日期范围: {date_min} - {date_max}")
+            print(f"日线数据: {len(daily_data)}行，日期范围: {date_min} - {date_max}")
+            
+            if 'close' in daily_data.columns and not daily_data.empty:
+                current_price = daily_data['close'].iloc[-1]
+                logger.debug(f"最新收盘价: {current_price}")
+                print(f"最新收盘价: {current_price}")
         else:
+            logger.warning(f"未获取到 {stock_code} 的日线数据")
             print("未获取到日线数据")
             
         if minute_data is not None:
-            print(f"分钟线数据: {len(minute_data)}行，日期范围: {minute_data['date'].min()} - {minute_data['date'].max()}")
-            print(f"最新5分钟收盘价: {minute_data['close'].iloc[-1]}")
+            date_min = minute_data['date'].min() if 'date' in minute_data.columns and not minute_data.empty else "未知"
+            date_max = minute_data['date'].max() if 'date' in minute_data.columns and not minute_data.empty else "未知"
+            logger.debug(f"分钟线数据: {len(minute_data)}行，日期范围: {date_min} - {date_max}")
+            print(f"分钟线数据: {len(minute_data)}行，日期范围: {date_min} - {date_max}")
+            
+            if 'close' in minute_data.columns and not minute_data.empty:
+                current_price = minute_data['close'].iloc[-1]
+                logger.debug(f"最新5分钟收盘价: {current_price}")
+                print(f"最新5分钟收盘价: {current_price}")
         else:
+            logger.warning(f"未获取到 {stock_code} 的5分钟线数据")
             print("未获取到分钟线数据")
         
         # 条件判断
@@ -813,488 +847,405 @@ def evaluate_rules(config=None):
         daily_conditions_met = []
         minute_conditions_met = []
         
+        # 详细条件结果
+        details = {}
+        
+        logger.info(f"开始评估 {stock_code} 的监控条件")
         print(f"\n-----监控条件评估开始-----")
         
         # 价格突破条件
-        if stock.get("price_level"):
-            price_level = float(stock.get("price_level"))
-            consecutive_bars = int(stock.get("consecutive_bars", 1))
+        if stock.get("rules", {}).get("price_level"):
+            price_level = float(stock.get("rules", {}).get("price_level"))
+            consecutive_bars = int(stock.get("rules", {}).get("consecutive_bars", 1))
             
+            logger.debug(f"评估价格突破条件: 价格 > {price_level}，持续{consecutive_bars}周期")
             print(f"\n🔍 评估价格突破条件: 价格 > {price_level}，持续{consecutive_bars}周期")
             
+            price_detail = {"pass": False, "description": ""}
+            
             # 日线价格突破
-            if daily_data is not None:
+            if daily_data is not None and 'close' in daily_data.columns and len(daily_data) >= consecutive_bars:
+                condition_start = time.time()
                 price_above = check_price_above(daily_data, price_level, consecutive_bars)
+                recent_prices = [str(round(p, 2)) for p in daily_data['close'].tail(consecutive_bars).values]
+                condition_time = time.time() - condition_start
+                
+                logger.debug(f"日线价格突破: {'是' if price_above else '否'}, 耗时: {condition_time:.4f}秒")
                 print(f"  ├─ 日线价格突破: {'是' if price_above else '否'}")
-                print(f"  │   └─ 最近{consecutive_bars}日收盘价: {', '.join([str(p) for p in daily_data['close'].tail(consecutive_bars).values])}")
+                print(f"  │   └─ 最近{consecutive_bars}日收盘价: {', '.join(recent_prices)}")
+                
+                price_detail["pass"] = price_above
+                price_detail["description"] = f"日线最近{consecutive_bars}日收盘价: {', '.join(recent_prices)}, 需突破: {price_level}"
                 
                 if price_above:
                     daily_conditions_met.append("price")
                     trigger_reasons.append(f"价格连续{consecutive_bars}日收盘价高于{price_level}")
+                    logger.info(f"日线价格突破条件满足: {price_level}")
                 
             # 分钟线价格突破
-            if minute_data is not None:
+            if minute_data is not None and 'close' in minute_data.columns and len(minute_data) >= consecutive_bars and not price_detail["pass"]:
+                condition_start = time.time()
                 price_above = check_price_above(minute_data, price_level, consecutive_bars)
+                recent_prices = [str(round(p, 2)) for p in minute_data['close'].tail(consecutive_bars).values]
+                condition_time = time.time() - condition_start
+                
+                logger.debug(f"分钟线价格突破: {'是' if price_above else '否'}, 耗时: {condition_time:.4f}秒")
                 print(f"  └─ 5分钟价格突破: {'是' if price_above else '否'}")
-                print(f"      └─ 最近{consecutive_bars}个5分钟收盘价: {', '.join([str(p) for p in minute_data['close'].tail(consecutive_bars).values])}")
+                print(f"      └─ 最近{consecutive_bars}个5分钟收盘价: {', '.join(recent_prices)}")
+                
+                if not price_detail["pass"]:  # 只有当日线未通过时才考虑分钟线
+                    price_detail["pass"] = price_above
+                    price_detail["description"] += f"\n5分钟最近{consecutive_bars}个周期收盘价: {', '.join(recent_prices)}, 需突破: {price_level}"
                 
                 if price_above:
                     minute_conditions_met.append("price")
                     trigger_reasons.append(f"价格连续{consecutive_bars}个5分钟收盘价高于{price_level}")
+                    logger.info(f"分钟线价格突破条件满足: {price_level}")
+            
+            # 添加到详细结果
+            details["price"] = price_detail
         
         # 成交量放大条件
-        if stock.get("volume_multiple"):
-            volume_multiple = float(stock.get("volume_multiple"))
-            lookback = int(stock.get("volume_lookback", 5))
+        if stock.get("rules", {}).get("volume_multiple"):
+            volume_multiple = float(stock.get("rules", {}).get("volume_multiple"))
+            lookback = int(stock.get("rules", {}).get("volume_lookback", 5))
             
+            logger.debug(f"评估成交量条件: 当前成交量 > 过去{lookback}周期均量的{volume_multiple}倍")
             print(f"\n🔍 评估成交量条件: 当前成交量 > 过去{lookback}周期均量的{volume_multiple}倍")
             
+            volume_detail = {"pass": False, "description": ""}
+            
             # 日线成交量放大
-            if daily_data is not None:
+            if daily_data is not None and 'volume' in daily_data.columns and len(daily_data) > lookback:
+                condition_start = time.time()
                 volume_above = check_volume_above(daily_data, volume_multiple, lookback)
                 current_volume = daily_data['volume'].iloc[-1]
                 avg_volume = daily_data['volume'].iloc[-lookback-1:-1].mean()
+                volume_ratio = current_volume / avg_volume if avg_volume > 0 else 0
+                condition_time = time.time() - condition_start
                 
+                logger.debug(f"日线成交量放大: {'是' if volume_above else '否'}, 耗时: {condition_time:.4f}秒")
                 print(f"  └─ 日线成交量放大: {'是' if volume_above else '否'}")
                 print(f"      ├─ 当前成交量: {current_volume}")
                 print(f"      ├─ 过去{lookback}日均量: {avg_volume}")
-                print(f"      └─ 对比倍数: {current_volume/avg_volume:.2f}倍")
+                print(f"      └─ 对比倍数: {volume_ratio:.2f}倍")
+                
+                volume_detail["pass"] = volume_above
+                volume_detail["description"] = f"当前成交量: {int(current_volume)}, 过去{lookback}日均量: {int(avg_volume)}, 对比倍数: {volume_ratio:.2f}倍, 需大于: {volume_multiple}倍"
                 
                 if volume_above:
                     daily_conditions_met.append("volume")
                     trigger_reasons.append(f"成交量为过去{lookback}日均值的{volume_multiple}倍以上")
+                    logger.info(f"成交量放大条件满足: {volume_ratio:.2f}倍 > {volume_multiple}倍")
+            
+            # 添加到详细结果
+            details["volume"] = volume_detail
                 
         # RSI指标条件
-        if stock.get("check_rsi", False):
-            overbought = float(stock.get("rsi_overbought", 70))
-            oversold = float(stock.get("rsi_oversold", 30))
-            rsi_length = int(stock.get("rsi_length", 14))
-            rsi_threshold = float(stock.get("rsi_threshold", 50))
+        if stock.get("rules", {}).get("rsi_check", False):
+            overbought = float(stock.get("rules", {}).get("rsi_overbought", 70))
+            oversold = float(stock.get("rules", {}).get("rsi_oversold", 30))
             
+            logger.debug(f"评估RSI条件: 超买区 > {overbought}，超卖区 < {oversold}")
             print(f"\n🔍 评估RSI条件: 超买区 > {overbought}，超卖区 < {oversold}")
             
-            # 检查是否需要检测RSI突破50
-            check_rsi_threshold = stock.get("check_rsi_threshold", False)
-            if check_rsi_threshold:
-                print(f"  ├─ 额外检查RSI({rsi_length})突破{rsi_threshold}条件")
+            rsi_detail = {"pass": False, "description": ""}
             
             # 日线RSI交叉
             if daily_data is not None:
                 if 'rsi' in daily_data.columns:
                     rsi_value = daily_data['rsi'].iloc[-1]
+                    recent_rsi = [f'{v:.2f}' for v in daily_data['rsi'].tail(3).values]
+                    logger.debug(f"日线RSI(14)当前值: {rsi_value:.2f}")
                     print(f"  ├─ 日线RSI(14)当前值: {rsi_value:.2f}")
-                    print(f"  │   └─ 最近3个值: {', '.join([f'{v:.2f}' for v in daily_data['rsi'].tail(3).values])}")
+                    
+                    rsi_detail["description"] = f"日线RSI(14)当前值: {rsi_value:.2f}, 最近3个值: {', '.join(recent_rsi)}"
                 
                 crossed, cross_type = check_rsi_cross(daily_data, overbought, oversold)
+                logger.debug(f"日线RSI金叉/死叉: {'是-'+cross_type if crossed else '否'}")
                 print(f"  ├─ 日线RSI金叉/死叉: {'是-'+cross_type if crossed else '否'}")
                 
-                if crossed and cross_type:
+                rsi_detail["pass"] = crossed
+                if crossed:
+                    rsi_detail["description"] += f"\n日线RSI指标{cross_type}: 超买区 > {overbought}, 超卖区 < {oversold}"
                     daily_conditions_met.append("rsi_cross")
                     trigger_reasons.append(f"日线RSI {cross_type}")
-                
-                # 检查RSI突破特定值
-                if check_rsi_threshold:
-                    # 计算指定周期的RSI
-                    if f'rsi_{rsi_length}' not in daily_data.columns:
-                        daily_data[f'rsi_{rsi_length}'] = ta.rsi(daily_data['close'], length=rsi_length)
-                    
-                    rsi_value = daily_data[f'rsi_{rsi_length}'].iloc[-1]
-                    print(f"  │   ├─ 日线RSI({rsi_length})当前值: {rsi_value:.2f}")
-                    print(f"  │   └─ 最近3个值: {', '.join([f'{v:.2f}' for v in daily_data[f'rsi_{rsi_length}'].tail(3).values])}")
-                        
-                    broke, break_type = check_rsi_break(
-                        daily_data, threshold=rsi_threshold, length=rsi_length, direction="up"
-                    )
-                    print(f"  │       └─ RSI({rsi_length})突破{rsi_threshold}: {'是-'+break_type if broke else '否'}")
-                    
-                    if broke and break_type:
-                        daily_conditions_met.append("rsi_threshold")
-                        trigger_reasons.append(f"日线{break_type}")
             
             # 分钟线RSI交叉
-            if minute_data is not None:
+            if minute_data is not None and not rsi_detail["pass"]:
                 if 'rsi' in minute_data.columns:
                     rsi_value = minute_data['rsi'].iloc[-1]
+                    recent_rsi = [f'{v:.2f}' for v in minute_data['rsi'].tail(3).values]
+                    logger.debug(f"分钟线RSI(14)当前值: {rsi_value:.2f}")
                     print(f"  ├─ 5分钟RSI(14)当前值: {rsi_value:.2f}")
-                    print(f"  │   └─ 最近3个值: {', '.join([f'{v:.2f}' for v in minute_data['rsi'].tail(3).values])}")
+                    
+                    if not rsi_detail["description"]:
+                        rsi_detail["description"] = f"5分钟RSI(14)当前值: {rsi_value:.2f}, 最近3个值: {', '.join(recent_rsi)}"
+                    else:
+                        rsi_detail["description"] += f"\n5分钟RSI(14)当前值: {rsi_value:.2f}, 最近3个值: {', '.join(recent_rsi)}"
                 
                 crossed, cross_type = check_rsi_cross(minute_data, overbought, oversold)
-                print(f"  ├─ 5分钟RSI金叉/死叉: {'是-'+cross_type if crossed else '否'}")
+                logger.debug(f"分钟线RSI金叉/死叉: {'是-'+cross_type if crossed else '否'}")
+                print(f"  └─ 5分钟RSI金叉/死叉: {'是-'+cross_type if crossed else '否'}")
+                
+                if not rsi_detail["pass"]:  # 只有当日线未通过时才考虑分钟线
+                    rsi_detail["pass"] = crossed
+                    if crossed:
+                        rsi_detail["description"] += f"\n5分钟RSI指标{cross_type}: 超买区 > {overbought}, 超卖区 < {oversold}"
                 
                 if crossed and cross_type:
                     minute_conditions_met.append("rsi_cross")
                     trigger_reasons.append(f"5分钟RSI {cross_type}")
                 
-                # 检查RSI突破特定值
-                if check_rsi_threshold:
-                    # 计算指定周期的RSI
-                    if f'rsi_{rsi_length}' not in minute_data.columns:
-                        minute_data[f'rsi_{rsi_length}'] = ta.rsi(minute_data['close'], length=rsi_length)
-                    
-                    rsi_value = minute_data[f'rsi_{rsi_length}'].iloc[-1]
-                    print(f"  │   ├─ 5分钟RSI({rsi_length})当前值: {rsi_value:.2f}")
-                    print(f"  │   └─ 最近3个值: {', '.join([f'{v:.2f}' for v in minute_data[f'rsi_{rsi_length}'].tail(3).values])}")
-                        
-                    broke, break_type = check_rsi_break(
-                        minute_data, threshold=rsi_threshold, length=rsi_length, direction="up"
-                    )
-                    print(f"  └─     └─ RSI({rsi_length})突破{rsi_threshold}: {'是-'+break_type if broke else '否'}")
-                    
-                    if broke and break_type:
-                        minute_conditions_met.append("rsi_threshold")
-                        trigger_reasons.append(f"5分钟{break_type}")
+            # 添加到详细结果
+            details["rsi"] = rsi_detail
         
         # 均线交叉条件
-        if stock.get("check_ma_cross", False):
-            fast_ma = stock.get("fast_ma", "ma5")
-            slow_ma = stock.get("slow_ma", "ma20")
+        if stock.get("rules", {}).get("ma_check", False):
+            fast_ma = stock.get("rules", {}).get("fast_ma", "ma5")
+            slow_ma = stock.get("rules", {}).get("slow_ma", "ma20")
             
+            logger.debug(f"评估均线交叉条件: {fast_ma}/{slow_ma}交叉")
             print(f"\n🔍 评估均线交叉条件: {fast_ma}/{slow_ma}交叉")
+            
+            ma_cross_detail = {"pass": False, "description": ""}
             
             # 日线均线交叉
             if daily_data is not None:
+                # 确保计算均线
+                for ma in [5, 10, 20, 60]:
+                    ma_col = f"ma{ma}"
+                    if ma_col not in daily_data.columns:
+                        daily_data[ma_col] = daily_data['close'].rolling(window=ma).mean()
+                
                 fast_val = daily_data[fast_ma].iloc[-1] if fast_ma in daily_data.columns else None
                 slow_val = daily_data[slow_ma].iloc[-1] if slow_ma in daily_data.columns else None
                 
-                print(f"  ├─ 日线{fast_ma}当前值: {fast_val:.2f}" if fast_val is not None else f"  ├─ 缺少{fast_ma}数据")
-                print(f"  ├─ 日线{slow_ma}当前值: {slow_val:.2f}" if slow_val is not None else f"  ├─ 缺少{slow_ma}数据")
+                if fast_val is not None and slow_val is not None:
+                    logger.debug(f"日线{fast_ma}当前值: {fast_val:.2f}")
+                    print(f"  ├─ 日线{fast_ma}当前值: {fast_val:.2f}")
+                    ma_cross_detail["description"] = f"日线{fast_ma}当前值: {fast_val:.2f}, {slow_ma}当前值: {slow_val:.2f}"
+                else:
+                    logger.debug(f"  ├─ 缺少均线数据")
+                    ma_cross_detail["description"] = "缺少日线均线数据"
                 
                 crossed, cross_type = check_ma_cross(daily_data, fast_ma, slow_ma)
+                logger.debug(f"日线均线交叉: {'是-'+cross_type if crossed else '否'}")
                 print(f"  ├─ 日线均线交叉: {'是-'+cross_type if crossed else '否'}")
                 
-                if crossed and cross_type:
-                    daily_conditions_met.append("ma")
-                    trigger_reasons.append(f"日线{cross_type}")
+                ma_cross_detail["pass"] = crossed
+                if crossed:
+                    ma_cross_detail["description"] += f"\n日线{fast_ma}/{slow_ma}出现{cross_type}"
+                    daily_conditions_met.append("ma_cross")
+                    trigger_reasons.append(f"日线{fast_ma}/{slow_ma} {cross_type}")
             
             # 分钟线均线交叉
-            if minute_data is not None:
+            if minute_data is not None and not ma_cross_detail["pass"]:
+                # 确保计算均线
+                for ma in [5, 10, 20, 60]:
+                    ma_col = f"ma{ma}"
+                    if ma_col not in minute_data.columns:
+                        minute_data[ma_col] = minute_data['close'].rolling(window=ma).mean()
+                
                 fast_val = minute_data[fast_ma].iloc[-1] if fast_ma in minute_data.columns else None
                 slow_val = minute_data[slow_ma].iloc[-1] if slow_ma in minute_data.columns else None
                 
-                print(f"  ├─ 5分钟{fast_ma}当前值: {fast_val:.2f}" if fast_val is not None else f"  ├─ 缺少{fast_ma}数据")
-                print(f"  ├─ 5分钟{slow_ma}当前值: {slow_val:.2f}" if slow_val is not None else f"  ├─ 缺少{slow_ma}数据")
+                if fast_val is not None and slow_val is not None:
+                    logger.debug(f"分钟线{fast_ma}当前值: {fast_val:.2f}")
+                    print(f"  ├─ 5分钟{fast_ma}当前值: {fast_val:.2f}")
+                    if not ma_cross_detail["description"]:
+                        ma_cross_detail["description"] = f"5分钟{fast_ma}当前值: {fast_val:.2f}, {slow_ma}当前值: {slow_val:.2f}"
+                    else:
+                        ma_cross_detail["description"] += f"\n5分钟{fast_ma}当前值: {fast_val:.2f}, {slow_ma}当前值: {slow_val:.2f}"
+                else:
+                    logger.debug(f"  ├─ 缺少均线数据")
+                    if not ma_cross_detail["description"]:
+                        ma_cross_detail["description"] = "缺少5分钟均线数据"
                 
                 crossed, cross_type = check_ma_cross(minute_data, fast_ma, slow_ma)
+                logger.debug(f"分钟线均线交叉: {'是-'+cross_type if crossed else '否'}")
                 print(f"  └─ 5分钟均线交叉: {'是-'+cross_type if crossed else '否'}")
                 
+                if not ma_cross_detail["pass"]:  # 只有当日线未通过时才考虑分钟线
+                    ma_cross_detail["pass"] = crossed
+                    if crossed:
+                        ma_cross_detail["description"] += f"\n5分钟{fast_ma}/{slow_ma}出现{cross_type}"
+                
                 if crossed and cross_type:
-                    minute_conditions_met.append("ma")
-                    trigger_reasons.append(f"5分钟{cross_type}")
+                    minute_conditions_met.append("ma_cross")
+                    trigger_reasons.append(f"5分钟{fast_ma}/{slow_ma} {cross_type}")
+            
+            # 添加到详细结果
+            details["ma_cross"] = ma_cross_detail
         
-        # MACD交叉条件
-        if stock.get("check_macd", False):
-            print(f"\n🔍 评估MACD交叉条件")
+        # MACD指标条件
+        if stock.get("rules", {}).get("macd_check", False):
+            logger.debug(f"评估MACD条件")
+            print(f"\n🔍 评估MACD条件")
+            
+            macd_detail = {"pass": False, "description": ""}
             
             # 日线MACD交叉
             if daily_data is not None:
-                macd_val = daily_data['MACD_12_26_9'].iloc[-1] if 'MACD_12_26_9' in daily_data.columns else None
-                signal_val = daily_data['MACDs_12_26_9'].iloc[-1] if 'MACDs_12_26_9' in daily_data.columns else None
+                # 确保计算MACD
+                if 'macd' not in daily_data.columns or 'macd_signal' not in daily_data.columns:
+                    macd_df = ta.macd(daily_data['close'])
+                    daily_data['macd'] = macd_df['MACD_12_26_9']
+                    daily_data['macd_signal'] = macd_df['MACDs_12_26_9']
+                    daily_data['macd_histogram'] = macd_df['MACDh_12_26_9']
                 
-                if macd_val is not None and signal_val is not None:
-                    print(f"  ├─ 日线MACD值: {macd_val:.4f}")
-                    print(f"  ├─ 日线信号线值: {signal_val:.4f}")
-                    print(f"  ├─ 差值: {macd_val - signal_val:.4f}")
-                else:
-                    print(f"  ├─ 缺少MACD指标数据")
+                macd_value = daily_data['macd'].iloc[-1]
+                signal_value = daily_data['macd_signal'].iloc[-1]
+                histogram_value = daily_data['macd_histogram'].iloc[-1]
+                
+                logger.debug(f"日线MACD当前值: {macd_value:.4f}")
+                print(f"  ├─ 日线MACD当前值: {macd_value:.4f}")
+                logger.debug(f"日线信号线当前值: {signal_value:.4f}")
+                print(f"  ├─ 日线信号线当前值: {signal_value:.4f}")
+                logger.debug(f"日线柱状图当前值: {histogram_value:.4f}")
+                print(f"  ├─ 日线柱状图当前值: {histogram_value:.4f}")
+                
+                macd_detail["description"] = f"日线MACD: {macd_value:.4f}, 信号线: {signal_value:.4f}, 柱状图: {histogram_value:.4f}"
                 
                 crossed, cross_type = check_macd_cross(daily_data)
+                logger.debug(f"日线MACD交叉: {'是-'+cross_type if crossed else '否'}")
                 print(f"  ├─ 日线MACD交叉: {'是-'+cross_type if crossed else '否'}")
                 
-                if crossed and cross_type:
+                macd_detail["pass"] = crossed
+                if crossed:
+                    macd_detail["description"] += f"\n日线MACD出现{cross_type}"
                     daily_conditions_met.append("macd")
-                    trigger_reasons.append(f"日线{cross_type}")
+                    trigger_reasons.append(f"日线MACD {cross_type}")
             
             # 分钟线MACD交叉
-            if minute_data is not None:
-                macd_val = minute_data['MACD_12_26_9'].iloc[-1] if 'MACD_12_26_9' in minute_data.columns else None
-                signal_val = minute_data['MACDs_12_26_9'].iloc[-1] if 'MACDs_12_26_9' in minute_data.columns else None
+            if minute_data is not None and not macd_detail["pass"]:
+                # 确保计算MACD
+                if 'macd' not in minute_data.columns or 'macd_signal' not in minute_data.columns:
+                    macd_df = ta.macd(minute_data['close'])
+                    minute_data['macd'] = macd_df['MACD_12_26_9']
+                    minute_data['macd_signal'] = macd_df['MACDs_12_26_9']
+                    minute_data['macd_histogram'] = macd_df['MACDh_12_26_9']
                 
-                if macd_val is not None and signal_val is not None:
-                    print(f"  ├─ 5分钟MACD值: {macd_val:.4f}")
-                    print(f"  ├─ 5分钟信号线值: {signal_val:.4f}")
-                    print(f"  ├─ 差值: {macd_val - signal_val:.4f}")
+                macd_value = minute_data['macd'].iloc[-1]
+                signal_value = minute_data['macd_signal'].iloc[-1]
+                histogram_value = minute_data['macd_histogram'].iloc[-1]
+                
+                logger.debug(f"分钟线MACD当前值: {macd_value:.4f}")
+                print(f"  ├─ 5分钟MACD当前值: {macd_value:.4f}")
+                logger.debug(f"分钟线信号线当前值: {signal_value:.4f}")
+                print(f"  ├─ 5分钟信号线当前值: {signal_value:.4f}")
+                logger.debug(f"分钟线柱状图当前值: {histogram_value:.4f}")
+                print(f"  ├─ 5分钟柱状图当前值: {histogram_value:.4f}")
+                
+                if not macd_detail["description"]:
+                    macd_detail["description"] = f"5分钟MACD: {macd_value:.4f}, 信号线: {signal_value:.4f}, 柱状图: {histogram_value:.4f}"
                 else:
-                    print(f"  ├─ 缺少MACD指标数据")
+                    macd_detail["description"] += f"\n5分钟MACD: {macd_value:.4f}, 信号线: {signal_value:.4f}, 柱状图: {histogram_value:.4f}"
                 
                 crossed, cross_type = check_macd_cross(minute_data)
+                logger.debug(f"分钟线MACD交叉: {'是-'+cross_type if crossed else '否'}")
                 print(f"  └─ 5分钟MACD交叉: {'是-'+cross_type if crossed else '否'}")
+                
+                if not macd_detail["pass"]:  # 只有当日线未通过时才考虑分钟线
+                    macd_detail["pass"] = crossed
+                    if crossed:
+                        macd_detail["description"] += f"\n5分钟MACD出现{cross_type}"
                 
                 if crossed and cross_type:
                     minute_conditions_met.append("macd")
-                    trigger_reasons.append(f"5分钟{cross_type}")
+                    trigger_reasons.append(f"5分钟MACD {cross_type}")
+            
+            # 添加到详细结果
+            details["macd"] = macd_detail
         
-        # 价格突破前期高低点条件
-        if stock.get("check_price_breakout", False):
-            lookback = int(stock.get("breakout_periods", 20))
+        # 根据条件综合判断
+        if daily_conditions_met or minute_conditions_met:
+            triggered = True
+            logger.info(f"触发告警: {stock_code}, 原因: {trigger_reasons}")
             
-            print(f"\n🔍 评估价格突破前期高低点条件: 回溯{lookback}周期")
-            
-            # 日线突破
-            if daily_data is not None:
-                if len(daily_data) > lookback + 1:
-                    current_close = daily_data['close'].iloc[-1]
-                    previous_high = daily_data['high'].iloc[-lookback-1:-1].max()
-                    previous_low = daily_data['low'].iloc[-lookback-1:-1].min()
-                    
-                    print(f"  ├─ 日线当前收盘价: {current_close:.2f}")
-                    print(f"  ├─ 前{lookback}周期最高价: {previous_high:.2f}")
-                    print(f"  ├─ 前{lookback}周期最低价: {previous_low:.2f}")
-                    
-                    breakout, breakout_type = check_price_breakout(daily_data, lookback)
-                    print(f"  ├─ 日线价格突破: {'是-'+breakout_type if breakout else '否'}")
-                    
-                    if breakout and breakout_type:
-                        daily_conditions_met.append("breakout")
-                        trigger_reasons.append(f"日线{breakout_type}")
+            # 确定信号类型
+            if "macd" in daily_conditions_met or "ma_cross" in daily_conditions_met:
+                if "金叉" in " ".join(trigger_reasons):
+                    action = "buy"
+                elif "死叉" in " ".join(trigger_reasons):
+                    action = "sell"
                 else:
-                    print(f"  ├─ 日线数据不足{lookback+1}个周期，无法评估")
-            
-            # 分钟线突破
-            if minute_data is not None:
-                if len(minute_data) > lookback + 1:
-                    current_close = minute_data['close'].iloc[-1]
-                    previous_high = minute_data['high'].iloc[-lookback-1:-1].max()
-                    previous_low = minute_data['low'].iloc[-lookback-1:-1].min()
-                    
-                    print(f"  ├─ 5分钟当前收盘价: {current_close:.2f}")
-                    print(f"  ├─ 前{lookback}周期最高价: {previous_high:.2f}")
-                    print(f"  ├─ 前{lookback}周期最低价: {previous_low:.2f}")
-                    
-                    breakout, breakout_type = check_price_breakout(minute_data, lookback)
-                    print(f"  └─ 5分钟价格突破: {'是-'+breakout_type if breakout else '否'}")
-                    
-                    if breakout and breakout_type:
-                        minute_conditions_met.append("breakout")
-                        trigger_reasons.append(f"5分钟{breakout_type}")
+                    action = "alert"
+            elif "price" in daily_conditions_met or "volume" in daily_conditions_met:
+                action = "buy"
+            elif "rsi_cross" in daily_conditions_met:
+                if "超买" in " ".join(trigger_reasons):
+                    action = "sell"
+                elif "超卖" in " ".join(trigger_reasons):
+                    action = "buy"
                 else:
-                    print(f"  └─ 5分钟线数据不足{lookback+1}个周期，无法评估")
-        
-        # 量价背离条件
-        if stock.get("check_divergence", False):
-            window = int(stock.get("divergence_window", 5))
-            
-            print(f"\n🔍 评估量价背离条件: 观察窗口{window}周期")
-            
-            # 日线量价背离
-            if daily_data is not None and len(daily_data) >= window * 2:
-                current_slice = daily_data.iloc[-window:]
-                previous_slice = daily_data.iloc[-window*2:-window]
-                
-                current_price_trend = current_slice['close'].iloc[-1] - current_slice['close'].iloc[0]
-                previous_price_trend = previous_slice['close'].iloc[-1] - previous_slice['close'].iloc[0]
-                
-                current_volume_sum = current_slice['volume'].sum()
-                previous_volume_sum = previous_slice['volume'].sum()
-                volume_trend = current_volume_sum - previous_volume_sum
-                
-                print(f"  ├─ 日线当前{window}周期价格趋势: {'上涨' if current_price_trend > 0 else '下跌'} {abs(current_price_trend):.2f}")
-                print(f"  ├─ 日线前{window}周期价格趋势: {'上涨' if previous_price_trend > 0 else '下跌'} {abs(previous_price_trend):.2f}")
-                print(f"  ├─ 日线成交量趋势: {'放大' if volume_trend > 0 else '萎缩'} {abs(volume_trend):.2f}")
-                
-                diverge, diverge_type = check_volume_price_divergence(daily_data, window)
-                print(f"  ├─ 日线量价背离: {'是-'+diverge_type if diverge else '否'}")
-                
-                if diverge and diverge_type:
-                    daily_conditions_met.append("divergence")
-                    trigger_reasons.append(f"日线{diverge_type}")
+                    action = "alert"
             else:
-                print(f"  ├─ 日线数据不足{window*2}个周期，无法评估量价背离")
+                action = "alert"
             
-            # 分钟线量价背离
-            if minute_data is not None and len(minute_data) >= window * 2:
-                current_slice = minute_data.iloc[-window:]
-                previous_slice = minute_data.iloc[-window*2:-window]
-                
-                current_price_trend = current_slice['close'].iloc[-1] - current_slice['close'].iloc[0]
-                previous_price_trend = previous_slice['close'].iloc[-1] - previous_slice['close'].iloc[0]
-                
-                current_volume_sum = current_slice['volume'].sum()
-                previous_volume_sum = previous_slice['volume'].sum()
-                volume_trend = current_volume_sum - previous_volume_sum
-                
-                print(f"  ├─ 5分钟当前{window}周期价格趋势: {'上涨' if current_price_trend > 0 else '下跌'} {abs(current_price_trend):.2f}")
-                print(f"  ├─ 5分钟前{window}周期价格趋势: {'上涨' if previous_price_trend > 0 else '下跌'} {abs(previous_price_trend):.2f}")
-                print(f"  ├─ 5分钟成交量趋势: {'放大' if volume_trend > 0 else '萎缩'} {abs(volume_trend):.2f}")
-                
-                diverge, diverge_type = check_volume_price_divergence(minute_data, window)
-                print(f"  └─ 5分钟量价背离: {'是-'+diverge_type if diverge else '否'}")
-                
-                if diverge and diverge_type:
-                    minute_conditions_met.append("divergence")
-                    trigger_reasons.append(f"5分钟{diverge_type}")
+            # 生成消息
+            if daily_data is not None and 'close' in daily_data.columns and not daily_data.empty:
+                current_price = daily_data['close'].iloc[-1]
+            elif minute_data is not None and 'close' in minute_data.columns and not minute_data.empty:
+                current_price = minute_data['close'].iloc[-1]
             else:
-                print(f"  └─ 5分钟数据不足{window*2}个周期，无法评估量价背离")
-        
-        # 价格回调条件
-        if stock.get("check_pullback", False) and stock.get("pullback_price"):
-            pullback_price = float(stock.get("pullback_price"))
-            volume_multiple = float(stock.get("pullback_volume_multiple", 1.2))
-            lookback = int(stock.get("pullback_lookback", 5))
+                current_price = 0
             
-            print(f"\n🔍 评估价格回调条件: 价格回调至 {pullback_price} 附近且放量{volume_multiple}倍")
+            message = f"{stock_name}({stock_code}) 当前价: {current_price:.2f}，触发条件: {', '.join(trigger_reasons)}"
             
-            # 日线回调
-            if daily_data is not None:
-                pullback, pullback_msg = check_price_pullback(daily_data, pullback_price, volume_multiple, lookback)
-                print(f"  ├─ 日线价格回调: {'是' if pullback else '否'}")
-                if pullback:
-                    print(f"  │   └─ {pullback_msg}")
-                    daily_conditions_met.append("pullback")
-                    trigger_reasons.append(f"日线{pullback_msg}")
+            # 添加到告警列表
+            alert = {
+                "code": stock_code,
+                "name": stock_name,
+                "price": current_price,
+                "action": action,
+                "message": message,
+                "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "details": details
+            }
             
-            # 分钟线回调
-            if minute_data is not None:
-                pullback, pullback_msg = check_price_pullback(minute_data, pullback_price, volume_multiple, lookback)
-                print(f"  └─ 5分钟价格回调: {'是' if pullback else '否'}")
-                if pullback:
-                    print(f"      └─ {pullback_msg}")
-                    minute_conditions_met.append("pullback")
-                    trigger_reasons.append(f"5分钟{pullback_msg}")
-                    
-        # 价格突破指定高低点条件
-        if stock.get("check_specific_breakout", False):
-            high_level = stock.get("high_level")
-            low_level = stock.get("low_level")
-            consecutive_bars = int(stock.get("breakout_consecutive_bars", 1))
+            alerts.append(alert)
             
-            if high_level or low_level:
-                high_str = f"{high_level}" if high_level else "无"
-                low_str = f"{low_level}" if low_level else "无"
-                print(f"\n🔍 评估价格突破指定高低点条件: 高点={high_str}，低点={low_str}，持续{consecutive_bars}周期")
-                
-                # 日线突破
-                if daily_data is not None:
-                    breakout, breakout_msg = check_specific_breakout(
-                        daily_data, 
-                        high_level=float(high_level) if high_level else None,
-                        low_level=float(low_level) if low_level else None,
-                        consecutive_bars=consecutive_bars
-                    )
-                    print(f"  ├─ 日线价格突破: {'是' if breakout else '否'}")
-                    if breakout:
-                        print(f"  │   └─ {breakout_msg}")
-                        daily_conditions_met.append("specific_breakout")
-                        trigger_reasons.append(f"日线{breakout_msg}")
-                
-                # 分钟线突破
-                if minute_data is not None:
-                    breakout, breakout_msg = check_specific_breakout(
-                        minute_data, 
-                        high_level=float(high_level) if high_level else None,
-                        low_level=float(low_level) if low_level else None,
-                        consecutive_bars=consecutive_bars
-                    )
-                    print(f"  └─ 5分钟价格突破: {'是' if breakout else '否'}")
-                    if breakout:
-                        print(f"      └─ {breakout_msg}")
-                        minute_conditions_met.append("specific_breakout")
-                        trigger_reasons.append(f"5分钟{breakout_msg}")
-        
-        # 判断是否需要同时满足多个条件
-        require_all_conditions = stock.get("require_all_conditions", False)
-        
-        print(f"\n-----监控条件总结-----")
-        
-        if require_all_conditions:
-            print("监控模式: 所有条件同时满足才触发")
-            # 计算需要检查的条件总数
-            required_conditions = 0
-            conditions_list = []
+            logger.info(f"添加告警: {message}")
+            print(f"\n✅ 触发告警: {message}")
             
-            if stock.get("price_level"):
-                required_conditions += 1
-                conditions_list.append("价格突破")
-            if stock.get("volume_multiple"):
-                required_conditions += 1
-                conditions_list.append("成交量放大")
-            if stock.get("check_rsi", False):
-                if stock.get("check_rsi_threshold", False):
-                    required_conditions += 1
-                    conditions_list.append(f"RSI({stock.get('rsi_length', 14)})突破{stock.get('rsi_threshold', 50)}")
-                required_conditions += 1
-                conditions_list.append("RSI金叉/死叉")
-            if stock.get("check_ma_cross", False):
-                required_conditions += 1
-                conditions_list.append(f"{stock.get('fast_ma', 'ma5')}/{stock.get('slow_ma', 'ma20')}交叉")
-            if stock.get("check_macd", False):
-                required_conditions += 1
-                conditions_list.append("MACD交叉")
-            if stock.get("check_price_breakout", False):
-                required_conditions += 1
-                conditions_list.append("价格突破前期高低点")
-            if stock.get("check_specific_breakout", False):
-                required_conditions += 1
-                high_str = stock.get("high_level", "无")
-                low_str = stock.get("low_level", "无")
-                conditions_list.append(f"价格突破指定高点{high_str}/低点{low_str}")
-            if stock.get("check_divergence", False):
-                required_conditions += 1
-                conditions_list.append("量价背离")
-            if stock.get("check_pullback", False) and stock.get("pullback_price"):
-                required_conditions += 1
-                conditions_list.append("价格回调且放量")
-                
-            print(f"需要满足的条件数量: {required_conditions}")
-            print(f"配置的监控条件: {', '.join(conditions_list)}")
-            print(f"日线满足的条件: {len(daily_conditions_met)}/{required_conditions} - {', '.join(daily_conditions_met)}")
-            print(f"分钟线满足的条件: {len(minute_conditions_met)}/{required_conditions} - {', '.join(minute_conditions_met)}")
-            
-            # 判断是否所有条件都满足（日线或分钟线）
-            daily_all_met = len(daily_conditions_met) == required_conditions and required_conditions > 0
-            minute_all_met = len(minute_conditions_met) == required_conditions and required_conditions > 0
-            
-            triggered = daily_all_met or minute_all_met
-            print(f"是否触发告警: {'是' if triggered else '否'}")
-            
-            # 添加额外说明
-            if triggered:
-                if daily_all_met:
-                    trigger_reasons.append("✅ 所有日线监控条件同时满足")
-                    print("原因: 所有日线监控条件同时满足")
-                if minute_all_met:
-                    trigger_reasons.append("✅ 所有5分钟线监控条件同时满足")
-                    print("原因: 所有5分钟线监控条件同时满足")
-        else:
-            print("监控模式: 满足任一条件即触发")
-            # 只要有任一条件满足即可触发
-            triggered = len(trigger_reasons) > 0
-            print(f"是否触发告警: {'是' if triggered else '否'}")
-        
-        print(f"-----监控评估结束-----\n")
-        
-        # 如果触发告警，生成告警内容
-        if triggered and trigger_reasons:
-            current_price = daily_data['close'].iloc[-1] if daily_data is not None else "未知"
-            
-            alert_content = "## 🔔 股票监控告警\n\n"
-            alert_content += f"**股票**: {stock_name}({stock_code})\n\n"
-            alert_content += f"**当前价**: {current_price}\n\n"
-            alert_content += "**触发条件**:\n\n"
-            
-            for reason in trigger_reasons:
-                alert_content += f"- {reason}\n"
-            
-            alert_content += f"\n**时间**: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            
-            # 如果配置了webhook，发送告警
+            # 发送微信告警
             if webhook_url:
-                send_wecom(webhook_url, alert_content)
-                print(f"已发送告警到企业微信")
-            else:
-                print(f"未配置企业微信Webhook，跳过发送")
+                wecom_result = send_wecom(webhook_url, message)
+                logger.info(f"发送微信通知: {'成功' if wecom_result else '失败'}")
+                print(f"已发送微信通知")
+        else:
+            logger.info(f"未触发告警: {stock_code}")
+            print(f"\n❌ 未触发任何告警条件")
             
-            alerts.append({
-                "stock_code": stock_code,
-                "stock_name": stock_name,
-                "reasons": trigger_reasons,
-                "time": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                "content": alert_content
-            })
+            # 即使未触发，也返回附带所有检测结果的数据
+            if daily_data is not None and 'close' in daily_data.columns and not daily_data.empty:
+                current_price = daily_data['close'].iloc[-1]
+            elif minute_data is not None and 'close' in minute_data.columns and not minute_data.empty:
+                current_price = minute_data['close'].iloc[-1]
+            else:
+                current_price = 0
+                
+            # 添加到结果列表，但标记为未触发
+            alert = {
+                "code": stock_code,
+                "name": stock_name,
+                "price": current_price,
+                "action": "none",
+                "message": f"{stock_name}({stock_code}) 当前价: {current_price:.2f}，未触发任何条件",
+                "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "details": details
+            }
+            
+            alerts.append(alert)
+        
+        stock_end_time = time.time()
+        stock_duration = stock_end_time - stock_start_time
+        logger.info(f"完成评估股票 {stock_code}，耗时: {stock_duration:.2f}秒")
+        print(f"-----监控条件评估结束 (耗时: {stock_duration:.2f}秒)-----\n")
     
-    print(f"\n{'='*50}")
-    print(f"监控评估完成，共触发{len(alerts)}个告警")
-    print(f"{'='*50}")
-    
+    total_duration = time.time() - start_time
+    logger.info(f"完成所有股票评估，总耗时: {total_duration:.2f}秒")
     return alerts
 
 
@@ -1343,6 +1294,6 @@ if __name__ == "__main__":
     alerts = evaluate_rules(config)
     
     for alert in alerts:
-        print(f"触发告警: {alert['stock_name']}({alert['stock_code']})")
+        print(f"触发告警: {alert['name']}({alert['code']})")
         print(f"原因: {', '.join(alert['reasons'])}")
         print("-" * 50) 

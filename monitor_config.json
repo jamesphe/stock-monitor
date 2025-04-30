@@ -1,16 +1,19 @@
 {
-  "wecom_webhook": "",
   "stocks": [
     {
-      "code": "603709",
-      "name": "中源家居",
-      "price_level": 11.63,
-      "consecutive_bars": 12,
-      "volume_multiple": 1.5,
-      "volume_lookback": 5,
-      "check_rsi": true,
-      "rsi_overbought": 70.0,
-      "rsi_oversold": 30.0
+      "code": "600580",
+      "name": "卧龙电驱",
+      "rules": {
+        "consecutive_bars": 3,
+        "fast_ma": "ma5",
+        "macd_check": true,
+        "price_level": 30,
+        "rsi_check": true,
+        "rsi_overbought": 70,
+        "rsi_oversold": 30,
+        "slow_ma": "ma20"
+      }
     }
-  ]
+  ],
+  "wecom_webhook": ""
 }
