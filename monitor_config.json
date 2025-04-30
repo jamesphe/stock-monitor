@@ -1,0 +1,16 @@
+{
+  "wecom_webhook": "",
+  "stocks": [
+    {
+      "code": "603709",
+      "name": "中源家居",
+      "price_level": 11.63,
+      "consecutive_bars": 12,
+      "volume_multiple": 1.5,
+      "volume_lookback": 5,
+      "check_rsi": true,
+      "rsi_overbought": 70.0,
+      "rsi_oversold": 30.0
+    }
+  ]
+}

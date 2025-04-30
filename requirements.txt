@@ -1,0 +1,6 @@
+streamlit>=1.30.0
+akshare==1.16.84
+pandas>=1.3.5
+pandas-ta>=0.3.14b0
+requests>=2.27.0
+aiohttp
