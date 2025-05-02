@@ -1,0 +1,107 @@
+<div x-show="lastMonitorTime" class="text-sm text-gray-500 mb-2">
+    上次监控时间: <span x-text="formatDate(lastMonitorTime)"></span>
+</div>
+<div x-show="config.stocks.length === 0" class="text-gray-500 text-center py-8">
+    暂无监控的股票，请在左侧添加
+</div>
+<div x-show="config.stocks.length > 0" class="overflow-x-auto">
+    <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+            <tr>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">代码</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">名称</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">策略</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+            </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+            <template x-for="(stock, index) in config.stocks" :key="index">
+                <tr>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600" x-text="stock.code"></td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900" x-text="stock.name || '未命名'"></td>
+                    <td class="px-6 py-4 text-sm text-gray-500">
+                        <!-- 遍历策略数组 -->
+                        <template x-if="stock.strategies && stock.strategies.length > 0">
+                            <div>
+                                <template x-for="(strategy, strategyIdx) in stock.strategies" :key="strategyIdx">
+                                    <div class="mb-2">
+                                        <span class="font-medium" x-text="strategy.strategy_name || '默认策略'"></span>
+                                        <span class="text-xs px-2 py-1 rounded ml-2"
+                                            :class="{
+                                                'bg-green-100 text-green-800': strategy.strategy_type === '建仓',
+                                                'bg-blue-100 text-blue-800': strategy.strategy_type === '加仓',
+                                                'bg-orange-100 text-orange-800': strategy.strategy_type === '减仓',
+                                                'bg-red-100 text-red-800': strategy.strategy_type === '清仓',
+                                                'bg-gray-100 text-gray-800': strategy.strategy_type === '基础监控' || !strategy.strategy_type
+                                            }"
+                                        >
+                                            <span x-text="strategy.strategy_type || '基础监控'"></span>
+                                        </span>
+                                        
+                                        <div x-show="strategy.rules.price_level > 0">价格突破: <span x-text="strategy.rules.price_level"></span></div>
+                                        <div x-show="strategy.rules.volume_multiple > 0">成交量倍数: <span x-text="strategy.rules.volume_multiple"></span></div>
+                                        <div x-show="strategy.rules.ma_check">均线监控: <span x-text="strategy.rules.fast_ma + '/' + strategy.rules.slow_ma"></span></div>
+                                        <div x-show="strategy.rules.macd_check">
+                                            MACD监控: <span x-text="formatMacdCondition(strategy.rules)"></span>
+                                        </div>
+                                        <div x-show="strategy.rules.price_breakout_check">
+                                            高低点突破: <span x-text="formatBreakoutCondition(strategy.rules)"></span>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                        
+                        <!-- 兼容旧格式 -->
+                        <template x-if="!stock.strategies && stock.rules">
+                            <div>
+                                <div>
+                                    <span class="font-medium" x-text="stock.strategy_name || '默认策略'"></span>
+                                    <span class="text-xs px-2 py-1 rounded ml-2"
+                                        :class="{
+                                            'bg-green-100 text-green-800': stock.strategy_type === '建仓',
+                                            'bg-blue-100 text-blue-800': stock.strategy_type === '加仓',
+                                            'bg-orange-100 text-orange-800': stock.strategy_type === '减仓',
+                                            'bg-red-100 text-red-800': stock.strategy_type === '清仓',
+                                            'bg-gray-100 text-gray-800': stock.strategy_type === '基础监控' || !stock.strategy_type
+                                        }"
+                                    >
+                                        <span x-text="stock.strategy_type || '基础监控'"></span>
+                                    </span>
+                                </div>
+                                <div x-show="stock.rules.price_level > 0">价格突破: <span x-text="stock.rules.price_level"></span></div>
+                                <div x-show="stock.rules.volume_multiple > 0">成交量倍数: <span x-text="stock.rules.volume_multiple"></span></div>
+                                <div x-show="stock.rules.ma_check">均线监控: <span x-text="stock.rules.fast_ma + '/' + stock.rules.slow_ma"></span></div>
+                                <div x-show="stock.rules.macd_check">
+                                    MACD监控: <span x-text="formatMacdCondition(stock.rules)"></span>
+                                </div>
+                                <div x-show="stock.rules.price_breakout_check">
+                                    高低点突破: <span x-text="formatBreakoutCondition(stock.rules)"></span>
+                                </div>
+                            </div>
+                        </template>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <button 
+                            @click="fetchStockData(stock.code)"
+                            class="text-blue-600 hover:text-blue-900 mr-3"
+                        >查看/编辑</button>
+                        <button 
+                            @click="removeStock(index, stock.code, stock.strategy_name)"
+                            class="text-red-600 hover:text-red-900"
+                        >删除</button>
+                        <button 
+                            @click="runMonitoringForStock(stock, index)"
+                            class="text-green-600 hover:text-green-900"
+                            :disabled="stocksRunningStatus[stock.code]"
+                            :class="{'opacity-50 cursor-not-allowed': stocksRunningStatus[stock.code]}"
+                        >
+                            <span x-show="!stocksRunningStatus[stock.code]">执行</span>
+                            <span x-show="stocksRunningStatus[stock.code]">执行中...</span>
+                        </button>
+                    </td>
+                </tr>
+            </template>
+        </tbody>
+    </table>
+</div> 

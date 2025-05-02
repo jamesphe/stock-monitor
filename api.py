@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, send_from_directory
 import logging
 import pandas as pd
+import os
 from flask_cors import CORS
 from monitor import (
     load_config, 
@@ -23,9 +24,20 @@ logging.basicConfig(
 logger = logging.getLogger("stock_api")
 
 
-app = Flask(__name__, static_folder='.')
+# 获取当前脚本的目录
+current_dir = os.path.dirname(os.path.abspath(__file__))
+static_folder = os.path.join(current_dir, 'static')
+
+app = Flask(__name__, static_folder=None)  # 禁用默认的静态文件处理
 # 启用CORS支持
 CORS(app)
+
+
+# 静态文件路由
+@app.route('/static/<path:path>')
+def serve_static(path):
+    logger.info(f"提供静态文件: {path}")
+    return send_from_directory(static_folder, path)
 
 
 # 请求前日志记录
@@ -241,8 +253,14 @@ def api_evaluate_rules():
         eval_thread.daemon = True
         eval_thread.start()
         
-        # 最多等待60秒
-        max_wait_time = 60
+        # 根据股票数量动态调整等待时间，每只股票至少10秒
+        stock_count = len(config.get('stocks', []))
+        base_wait_time = 60  # 基础等待时间60秒
+        per_stock_time = 10  # 每只股票额外增加10秒
+        max_wait_time = max(base_wait_time, min(300, base_wait_time + stock_count * per_stock_time))  # 最多等待5分钟
+        
+        logger.info(f"设置最大等待时间为 {max_wait_time} 秒（{stock_count} 只股票）")
+        
         wait_interval = 0.5
         waited_time = 0
         

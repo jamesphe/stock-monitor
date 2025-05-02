@@ -1,0 +1,233 @@
+<div class="space-y-4">
+    <div class="grid grid-cols-2 gap-4">
+        <div>
+            <label class="block text-sm font-medium text-gray-700">股票代码</label>
+            <input 
+                type="text" 
+                x-model="newStock.code"
+                class="mt-1 block w-full border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500" 
+                placeholder="如: 000001 或 sh000001"
+            >
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-gray-700">股票名称(可选)</label>
+            <input 
+                type="text" 
+                x-model="newStock.name"
+                class="mt-1 block w-full border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500" 
+                placeholder="如: 平安银行"
+            >
+        </div>
+    </div>
+
+    <div class="mt-4">
+        <h3 class="text-lg font-medium text-gray-900">策略设置</h3>
+        <div class="grid grid-cols-2 gap-4 mt-2">
+            <div>
+                <label class="block text-sm font-medium text-gray-700">策略名称</label>
+                <input 
+                    type="text" 
+                    x-model="newStock.strategy_name"
+                    class="mt-1 block w-full border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500" 
+                    placeholder="如: 建仓策略1"
+                >
+                <p class="mt-1 text-xs text-gray-500">给这个监控策略起个名字</p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">策略类型</label>
+                <select
+                    x-model="newStock.strategy_type"
+                    class="mt-1 block w-full border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                >
+                    <option value="建仓">建仓</option>
+                    <option value="加仓">加仓</option>
+                    <option value="减仓">减仓</option>
+                    <option value="清仓">清仓</option>
+                    <option value="基础监控">基础监控</option>
+                </select>
+                <p class="mt-1 text-xs text-gray-500">选择策略类型</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 选项卡组件 -->
+    <div>
+        <div class="border-b border-gray-200">
+            <nav class="-mb-px flex space-x-4">
+                <template x-for="(tab, index) in tabs" :key="index">
+                    <a 
+                        href="#" 
+                        @click.prevent="activeTab = index"
+                        :class="activeTab === index ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                        class="whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm"
+                        x-text="tab"
+                    ></a>
+                </template>
+            </nav>
+        </div>
+
+        <!-- 基本条件 -->
+        <div x-show="activeTab === 0" class="pt-4 space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">价格突破</label>
+                    <input 
+                        type="number" 
+                        x-model="newStock.rules.price_level"
+                        min="0" 
+                        step="0.01"
+                        class="mt-1 block w-full border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500" 
+                    >
+                    <p class="mt-1 text-xs text-gray-500">价格突破此水平将触发告警</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">持续K线数</label>
+                    <input 
+                        type="number" 
+                        x-model="newStock.rules.consecutive_bars"
+                        min="1" 
+                        class="mt-1 block w-full border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                    >
+                    <p class="mt-1 text-xs text-gray-500">价格需要连续n个周期站稳才触发</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">成交量倍数</label>
+                    <input 
+                        type="number" 
+                        x-model="newStock.rules.volume_multiple"
+                        min="0" 
+                        step="0.1"
+                        class="mt-1 block w-full border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500" 
+                    >
+                    <p class="mt-1 text-xs text-gray-500">当前成交量超过均值的倍数</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">参考周期数</label>
+                    <input 
+                        type="number" 
+                        x-model="newStock.rules.volume_lookback"
+                        min="1"
+                        class="mt-1 block w-full border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500" 
+                    >
+                    <p class="mt-1 text-xs text-gray-500">计算成交量均值的周期数</p>
+                </div>
+            </div>
+
+            <div class="flex items-center">
+                <input 
+                    type="checkbox" 
+                    id="rsi_check" 
+                    x-model="newStock.rules.rsi_check"
+                    class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" 
+                >
+                <label for="rsi_check" class="ml-2 block text-sm text-gray-700">
+                    启用RSI指标监控
+                </label>
+            </div>
+
+            <div x-show="newStock.rules.rsi_check" class="space-y-4">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">超买区域</label>
+                        <input 
+                            type="number" 
+                            x-model="newStock.rules.rsi_overbought"
+                            min="50" 
+                            max="100"
+                            class="mt-1 block w-full border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500" 
+                        >
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">超卖区域</label>
+                        <input 
+                            type="number" 
+                            x-model="newStock.rules.rsi_oversold"
+                            min="0" 
+                            max="50"
+                            class="mt-1 block w-full border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500" 
+                        >
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 均线交叉 -->
+        <div x-show="activeTab === 1" class="pt-4 space-y-4">
+            <div class="flex items-center">
+                <input 
+                    type="checkbox" 
+                    id="ma_check" 
+                    x-model="newStock.rules.ma_check"
+                    class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" 
+                >
+                <label for="ma_check" class="ml-2 block text-sm text-gray-700">
+                    启用均线交叉监控
+                </label>
+            </div>
+
+            <div x-show="newStock.rules.ma_check" class="space-y-4">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">快速均线</label>
+                        <select 
+                            x-model="newStock.rules.fast_ma"
+                            class="mt-1 block w-full border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                        >
+                            <option value="ma5">MA5</option>
+                            <option value="ma10">MA10</option>
+                            <option value="ma20">MA20</option>
+                            <option value="ma60">MA60</option>
+                        </select>
+                        <p class="mt-1 text-xs text-gray-500">通常选择周期较短的均线作为快线</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">慢速均线</label>
+                        <select 
+                            x-model="newStock.rules.slow_ma"
+                            class="mt-1 block w-full border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                        >
+                            <option value="ma5">MA5</option>
+                            <option value="ma10">MA10</option>
+                            <option value="ma20">MA20</option>
+                            <option value="ma60">MA60</option>
+                        </select>
+                        <p class="mt-1 text-xs text-gray-500">通常选择周期较长的均线作为慢线</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MACD -->
+        <div x-show="activeTab === 2" class="pt-4 space-y-4">
+            <!-- MACD相关内容 -->
+        </div>
+
+        <!-- 高低点突破 -->
+        <div x-show="activeTab === 3" class="pt-4 space-y-4">
+            <!-- 高低点突破相关内容 -->
+        </div>
+        
+        <!-- 默认其他选项卡 -->
+        <div x-show="activeTab > 3" class="pt-4">
+            <p class="text-gray-500">更多功能正在开发中...</p>
+        </div>
+    </div>
+
+    <div class="flex space-x-2">
+        <button 
+            @click="addStock()"
+            class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            x-text="isUpdatingStock() ? '更新监控' : '添加监控'"
+        >
+        </button>
+        <button 
+            @click="resetForm()"
+            class="bg-gray-300 hover:bg-gray-400 text-gray-800 py-2 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+        >
+            清空
+        </button>
+    </div>
+</div> 

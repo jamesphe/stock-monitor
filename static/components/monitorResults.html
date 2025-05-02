@@ -1,0 +1,112 @@
+<div class="flex justify-between items-center mb-6">
+    <h3 class="text-xl font-semibold">监控结果详情</h3>
+    <button @click="showMonitorResults = false" class="text-gray-500 hover:text-gray-700">
+        <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+    </button>
+</div>
+
+<div x-show="monitorResults.length === 0" class="text-center py-8 text-gray-500">
+    没有触发任何监控条件
+</div>
+
+<div x-show="monitorResults.length > 0" class="space-y-4">
+    <template x-for="(result, index) in monitorResults" :key="index">
+        <div 
+            :class="{
+                'bg-green-50 border-green-200': result.action === 'buy',
+                'bg-red-50 border-red-200': result.action === 'sell',
+                'bg-yellow-50 border-yellow-200': result.action !== 'buy' && result.action !== 'sell'
+            }"
+            class="p-4 rounded-lg border"
+        >
+            <div class="flex justify-between items-start mb-2">
+                <div>
+                    <h4 class="font-semibold" x-text="result && (result.name || result.code || '未知股票')"></h4>
+                    <p class="text-sm text-gray-600" x-text="result && result.code"></p>
+                </div>
+                <div 
+                    :class="{
+                        'bg-green-100 text-green-800': result && result.action === 'buy',
+                        'bg-red-100 text-red-800': result && result.action === 'sell',
+                        'bg-yellow-100 text-yellow-800': result && result.action !== 'buy' && result.action !== 'sell'
+                    }"
+                    class="px-2 py-1 rounded text-xs font-semibold"
+                    x-text="result && (result.action === 'buy' ? '买入信号' : result.action === 'sell' ? '卖出信号' : '监控信号')"
+                ></div>
+            </div>
+            
+            <p class="mb-3 font-medium" x-text="result && result.message"></p>
+            
+            <div class="text-sm space-y-2">
+                <h5 class="font-medium text-gray-700">条件详情:</h5>
+                
+                <template x-if="result && result.details && result.details.price">
+                    <div class="ml-2 p-2 bg-white rounded border border-gray-200">
+                        <p class="flex justify-between">
+                            <span>价格条件:</span>
+                            <span
+                                :class="result.details.price.pass ? 'text-green-600' : 'text-red-600'"
+                                x-text="result.details.price.pass ? '通过' : '未通过'"
+                            ></span>
+                        </p>
+                        <p class="text-xs text-gray-600 mt-1" x-text="result.details.price.description"></p>
+                    </div>
+                </template>
+                
+                <template x-if="result && result.details && result.details.volume">
+                    <div class="ml-2 p-2 bg-white rounded border border-gray-200">
+                        <p class="flex justify-between">
+                            <span>成交量条件:</span>
+                            <span
+                                :class="result.details.volume.pass ? 'text-green-600' : 'text-red-600'"
+                                x-text="result.details.volume.pass ? '通过' : '未通过'"
+                            ></span>
+                        </p>
+                        <p class="text-xs text-gray-600 mt-1" x-text="result.details.volume.description"></p>
+                    </div>
+                </template>
+                
+                <template x-if="result && result.details && result.details.ma_cross">
+                    <div class="ml-2 p-2 bg-white rounded border border-gray-200">
+                        <p class="flex justify-between">
+                            <span>均线交叉条件:</span>
+                            <span
+                                :class="result.details.ma_cross.pass ? 'text-green-600' : 'text-red-600'"
+                                x-text="result.details.ma_cross.pass ? '通过' : '未通过'"
+                            ></span>
+                        </p>
+                        <p class="text-xs text-gray-600 mt-1" x-text="result.details.ma_cross.description"></p>
+                    </div>
+                </template>
+                
+                <template x-if="result && result.details && result.details.rsi">
+                    <div class="ml-2 p-2 bg-white rounded border border-gray-200">
+                        <p class="flex justify-between">
+                            <span>RSI指标条件:</span>
+                            <span
+                                :class="result.details.rsi.pass ? 'text-green-600' : 'text-red-600'"
+                                x-text="result.details.rsi.pass ? '通过' : '未通过'"
+                            ></span>
+                        </p>
+                        <p class="text-xs text-gray-600 mt-1" x-text="result.details.rsi.description"></p>
+                    </div>
+                </template>
+                
+                <template x-if="result && result.details && result.details.macd">
+                    <div class="ml-2 p-2 bg-white rounded border border-gray-200">
+                        <p class="flex justify-between">
+                            <span>MACD指标条件:</span>
+                            <span
+                                :class="result.details.macd.pass ? 'text-green-600' : 'text-red-600'"
+                                x-text="result.details.macd.pass ? '通过' : '未通过'"
+                            ></span>
+                        </p>
+                        <p class="text-xs text-gray-600 mt-1" x-text="result.details.macd.description"></p>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </template>
+</div> 

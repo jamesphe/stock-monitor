@@ -1,0 +1,48 @@
+<div x-show="alertHistory.length === 0" class="text-gray-500 text-center py-8">
+    暂无告警记录
+</div>
+<div x-show="alertHistory.length > 0" class="space-y-2">
+    <template x-for="(alert, index) in alertHistory" :key="index">
+        <div class="p-4 bg-white rounded-lg shadow mb-2">
+            <div class="flex justify-between items-center">
+                <div>
+                    <h3 class="text-lg font-medium">
+                        <span x-text="alert.stock_name"></span>
+                        (<span x-text="alert.stock_code"></span>)
+                    </h3>
+                    <p class="text-sm text-gray-500" x-text="formatDate(alert.time)"></p>
+                </div>
+                
+                <div class="flex items-center">
+                    <span 
+                        class="px-2 py-1 text-sm rounded-full" 
+                        :class="{
+                            'bg-green-100 text-green-800': alert.strategy_type === '建仓',
+                            'bg-blue-100 text-blue-800': alert.strategy_type === '加仓',
+                            'bg-orange-100 text-orange-800': alert.strategy_type === '减仓',
+                            'bg-red-100 text-red-800': alert.strategy_type === '清仓',
+                            'bg-gray-100 text-gray-800': alert.strategy_type === '基础监控' || !alert.strategy_type
+                        }"
+                    >
+                        <span x-text="alert.strategy_name || '默认策略'"></span>
+                        (<span x-text="alert.strategy_type || '基础监控'"></span>)
+                    </span>
+                    
+                    <span 
+                        class="ml-2 px-2 py-1 text-sm rounded-full" 
+                        :class="{
+                            'bg-green-100 text-green-800': alert.type === 'success',
+                            'bg-red-100 text-red-800': alert.type === 'danger',
+                            'bg-yellow-100 text-yellow-800': alert.type === 'warning',
+                            'bg-gray-100 text-gray-800': !alert.type
+                        }"
+                    >
+                        <span x-text="alert.action_display || (alert.type === 'success' ? '买入' : alert.type === 'danger' ? '卖出' : alert.type === 'warning' ? '提示' : '无动作')"></span>
+                    </span>
+                </div>
+            </div>
+            
+            <div class="mt-2 text-sm text-gray-700" x-text="alert.message || alert.content"></div>
+        </div>
+    </template>
+</div> 

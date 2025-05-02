@@ -52,20 +52,28 @@ if webhook_url != config.get("wecom_webhook", ""):
 st.sidebar.header("📋 添加监控")
 
 with st.sidebar.form("add_stock_form"):
-    st.subheader("新增股票监控")
+    st.header("添加股票监控")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        stock_code = st.text_input("股票代码", placeholder="如: 000001 或 sh000001")
-    with col2:
-        stock_name = st.text_input("股票名称(可选)", placeholder="如: 平安银行")
+    # 股票基本信息
+    st.subheader("股票信息")
+    stock_code = st.text_input("股票代码（如: 000001）")
+    stock_name = st.text_input("股票名称（可选）", help="留空将使用股票代码作为名称")
     
+    # 添加策略名称和类型
+    st.subheader("策略设置")
+    strategy_name = st.text_input("策略名称", help="给这个监控策略起个名字，例如：建仓策略、加仓策略、清仓策略等")
+    strategy_type = st.selectbox(
+        "策略类型",
+        options=["建仓", "加仓", "减仓", "清仓", "基础监控"],
+        index=4,
+        help="选择策略类型，不同类型会使用不同的颜色标记"
+    )
+    
+    # 分页显示各种监控条件
     st.subheader("监控条件")
-    
-    # 创建监控条件Tab
     tabs = st.tabs(["基本条件", "均线交叉", "MACD", "高低点突破", "量价背离", "价格回调"])
     
-    # Tab 1: 基本条件（原有功能）
+    # Tab 1: 基本条件
     with tabs[0]:
         # 价格条件
         price_col1, price_col2 = st.columns(2)
@@ -343,6 +351,8 @@ with st.sidebar.form("add_stock_form"):
         stock_config = {
             "code": stock_code,
             "name": stock_name if stock_name else stock_code,
+            "strategy_name": strategy_name if strategy_name else "默认策略",
+            "strategy_type": strategy_type,
         }
         
         # 添加基本条件配置
@@ -408,19 +418,9 @@ with st.sidebar.form("add_stock_form"):
         if "stocks" not in config:
             config["stocks"] = []
         
-        # 检查是否已存在相同代码的配置
-        existing_idx = None
-        for i, stock in enumerate(config["stocks"]):
-            if stock.get("code") == stock_code:
-                existing_idx = i
-                break
-        
-        if existing_idx is not None:
-            config["stocks"][existing_idx] = stock_config
-            st.sidebar.success(f"已更新 {stock_name if stock_name else stock_code} 的监控配置")
-        else:
-            config["stocks"].append(stock_config)
-            st.sidebar.success(f"已添加 {stock_name if stock_name else stock_code} 到监控列表")
+        # 不再检查是否存在相同代码的配置，允许添加多个
+        config["stocks"].append(stock_config)
+        st.sidebar.success(f"已添加 {stock_name if stock_name else stock_code} 的 {strategy_name} 策略到监控列表")
         
         save_config(config)
 
@@ -474,31 +474,65 @@ else:
         if stock.get("require_all_conditions", False):
             condition_mode = "【全部条件同时满足】"
         
+        # 获取策略名称和类型
+        strategy_name = stock.get("strategy_name", "默认策略")
+        strategy_type = stock.get("strategy_type", "基础监控")
+        
         stocks_data.append({
             "股票代码": stock.get("code"),
             "股票名称": stock.get("name", stock.get("code")),
+            "策略类型": strategy_type,
+            "策略名称": strategy_name,
             "监控条件": condition_mode + "、".join(conditions),
-            "操作": stock.get("code")  # 用于后续删除操作
+            "操作": f"{stock.get('code')}_{strategy_name}"  # 修改操作标识，使用代码和策略名组合
         })
     
     stocks_df = pd.DataFrame(stocks_data)
     
-    # 自定义渲染删除按钮
-    def make_delete_button(code):
-        button_id = f"delete_{code}"
+    # 自定义渲染删除按钮，使用代码和策略名的组合作为唯一标识
+    def make_delete_button(code_strategy):
+        code, strategy_name = code_strategy.split("_", 1)
+        button_id = f"delete_{code}_{strategy_name}"
         if st.button("❌ 删除", key=button_id):
-            # 从配置中删除
-            config["stocks"] = [s for s in config["stocks"] if s.get("code") != code]
+            # 从配置中删除特定代码和策略名称匹配的项
+            code_parts = code_strategy.split("_", 1)
+            stock_code = code_parts[0]
+            strategy_name = code_parts[1] if len(code_parts) > 1 else ""
+            
+            # 保留不匹配的项
+            new_stocks = []
+            for s in config["stocks"]:
+                if s.get("code") == stock_code and s.get("strategy_name") == strategy_name:
+                    continue  # 跳过要删除的项
+                new_stocks.append(s)
+            
+            config["stocks"] = new_stocks
             save_config(config)
             st.rerun()
+    
+    # 为不同策略类型定义颜色
+    strategy_colors = {
+        "建仓": "green",
+        "加仓": "blue", 
+        "减仓": "orange",
+        "清仓": "red",
+        "基础监控": "gray"
+    }
     
     # 显示表格
     for i, row in stocks_df.iterrows():
         with st.container():
-            cols = st.columns([1, 1, 3, 1])
+            cols = st.columns([1, 1, 1, 1, 3, 1])
             cols[0].write(row["股票代码"])
             cols[1].write(row["股票名称"])
-            cols[2].write(row["监控条件"])
+            
+            # 策略类型使用颜色标记
+            strategy_type = row["策略类型"]
+            color = strategy_colors.get(strategy_type, "gray")
+            cols[2].markdown(f"<span style='color:{color};font-weight:bold;'>{strategy_type}</span>", unsafe_allow_html=True)
+            
+            cols[3].write(row["策略名称"])
+            cols[4].write(row["监控条件"])
             make_delete_button(row["操作"])
             st.divider()
 
@@ -512,21 +546,51 @@ with check_col1:
             
             if alerts:
                 for alert in alerts:
-                    st.session_state.alert_history.append(alert)
+                    # 构建完整的告警记录
+                    alert_record = {
+                        "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "stock_code": alert["code"],
+                        "stock_name": alert["name"],
+                        "strategy_name": alert.get("strategy_name", "默认策略"),
+                        "strategy_type": alert.get("strategy_type", "基础监控"),
+                        "action_display": alert.get("action_display", "监控"),
+                        "content": alert["message"]
+                    }
+                    st.session_state.alert_history.append(alert_record)
                 st.success(f"检测完成，发现 {len(alerts)} 个告警")
             else:
                 st.info("检测完成，未触发任何告警")
 
+# 修改告警历史显示部分
 # 展示告警历史
 st.header("📝 告警历史")
 
 if not st.session_state.alert_history:
     st.info("暂无告警记录")
 else:
+    # 为不同策略类型定义颜色
+    alert_colors = {
+        "建仓": "green",
+        "加仓": "blue", 
+        "减仓": "orange",
+        "清仓": "red",
+        "监控": "gray"
+    }
+    
     # 倒序显示，最新的在前面
     for alert in reversed(st.session_state.alert_history):
-        with st.expander(f"{alert['time']} - {alert['stock_name']}({alert['stock_code']})"):
-            st.markdown(alert["content"])
+        # 获取策略类型和名称
+        strategy_type = alert.get('strategy_type', '基础监控')
+        strategy_name = alert.get('strategy_name', '默认策略')
+        action_display = alert.get('action_display', '监控')
+        color = alert_colors.get(action_display, "gray")
+        
+        # 创建标题，包含策略信息
+        title = f"{alert['time']} - {alert['stock_name']}({alert['stock_code']}) "
+        title += f"[<span style='color:{color};font-weight:bold;'>{strategy_name}-{action_display}</span>]"
+        
+        with st.expander(title, format_func=lambda x: x):
+            st.markdown(alert["content"], unsafe_allow_html=True)
 
 # 添加自动检测定时器
 st.sidebar.header("⏱️ 自动检测设置")

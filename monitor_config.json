@@ -3,16 +3,36 @@
     {
       "code": "600580",
       "name": "卧龙电驱",
-      "rules": {
-        "consecutive_bars": 3,
-        "fast_ma": "ma5",
-        "macd_check": true,
-        "price_level": 30,
-        "rsi_check": true,
-        "rsi_overbought": 70,
-        "rsi_oversold": 30,
-        "slow_ma": "ma20"
-      }
+      "strategies": [
+        {
+          "rules": {
+            "consecutive_bars": 3,
+            "fast_ma": "ma5",
+            "macd_check": true,
+            "price_level": 30,
+            "rsi_check": true,
+            "rsi_overbought": 70,
+            "rsi_oversold": 30,
+            "slow_ma": "ma20"
+          },
+          "strategy_name": "基础监控",
+          "strategy_type": "基础监控"
+        },
+        {
+          "rules": {
+            "consecutive_up_bars": 2,
+            "volume_increase": 1.5,
+            "price_above_ma": "ma20",
+            "macd_golden_cross": true,
+            "rsi_rising": true,
+            "rsi_min": 40,
+            "rsi_max": 60,
+            "stop_loss_percent": 3
+          },
+          "strategy_name": "买入信号",
+          "strategy_type": "买入策略"
+        }
+      ]
     }
   ],
   "wecom_webhook": ""
