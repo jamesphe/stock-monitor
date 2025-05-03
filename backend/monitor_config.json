@@ -33,6 +33,27 @@
           "strategy_type": "买入策略"
         }
       ]
+    },
+    {
+      "code": "000880",
+      "name": "潍柴重机",
+      "strategies": [
+        {
+          "rules": {
+            "price_threshold": 35.12
+          },
+          "strategy_name": "减仓信号",
+          "strategy_type": "减仓策略"
+        },
+        {
+          "rules": {
+            "price_threshold": 36.89,
+            "volume_threshold": 341400
+          },
+          "strategy_name": "加仓信号",
+          "strategy_type": "加仓策略"
+        }
+      ]
     }
   ],
   "wecom_webhook": ""

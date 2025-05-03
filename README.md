@@ -1,19 +1,173 @@
 # 股票信号监控系统
 
-## 项目简介
+股票信号监控系统是一个帮助投资者追踪股票价格和关键技术指标的工具。
 
-一款面向个人用户的轻量级股票交易信号监控工具，基于 Python、AKshare 与 Streamlit 实现。通过本地 Web 界面灵活配置监控条件，定时获取行情并评估技术指标，满足条件时自动向企业微信机器人推送告警。
+## 项目架构
+
+本项目采用前后端分离架构：
+
+- 前端：基于Vue.js 3构建，位于`frontend`目录
+- 后端：基于Flask的RESTful API，提供数据和业务逻辑处理，位于`backend`目录
 
 ## 目录结构
 
 ```
-├── app.py                 # Streamlit Web 界面入口
-├── monitor.py             # 核心逻辑：行情获取、指标计算、告警推送
-├── monitor_config.json    # 配置文件：企业微信 Webhook 与监控规则
-├── requirements.txt       # 项目依赖
-├── .gitignore             # Git 忽略配置
-└── README.md              # 项目文档
+stock-monitor/
+├── backend/             # 后端代码
+│   ├── api.py           # API服务
+│   ├── monitor.py       # 业务逻辑
+│   ├── requirements.txt # 后端依赖
+│   ├── static/          # 静态资源
+│   └── monitor_config.json # 配置文件
+├── frontend/            # 前端代码
+│   ├── public/          # 静态资源
+│   ├── src/             # 源代码
+│   └── package.json     # 前端依赖
+├── frontend-dist/       # 前端构建输出目录
+├── setup.sh             # Linux/Mac安装脚本
+├── setup.bat            # Windows安装脚本
+├── start_backend.sh     # Linux/Mac后端启动脚本 
+├── start_backend.bat    # Windows后端启动脚本
+└── README.md            # 项目文档
 ```
+
+## 安装与运行
+
+### 完整安装（前后端）
+
+1. 克隆或下载项目代码
+
+2. 运行安装脚本
+
+   对于Linux/Mac用户：
+   ```bash
+   chmod +x setup.sh
+   ./setup.sh
+   ```
+
+   对于Windows用户：
+   ```
+   setup.bat
+   ```
+
+   安装脚本会自动检查环境、安装依赖，并启动后端服务。
+
+### 仅启动后端
+
+如果已经完成安装，只想启动后端服务：
+
+对于Linux/Mac用户：
+```bash
+chmod +x start_backend.sh
+./start_backend.sh
+```
+
+对于Windows用户：
+```
+start_backend.bat
+```
+
+### 手动安装
+
+#### 后端安装
+
+1. 创建并激活虚拟环境（推荐）
+
+```bash
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# 或 venv\Scripts\activate  # Windows
+```
+
+2. 安装依赖
+
+```bash
+pip install -r backend/requirements.txt
+```
+
+3. 启动后端服务
+
+```bash
+cd backend
+python api.py
+```
+
+后端服务将在 http://localhost:5001 上运行。
+
+### API文档
+
+本项目提供基于Swagger/OpenAPI的在线API文档，方便开发者了解和测试接口。
+
+1. 启动API文档服务器：
+
+```bash
+cd backend
+python api.py
+```
+
+2. 访问API文档页面：
+
+在浏览器中打开 http://localhost:5001/api/docs
+
+API文档提供以下功能：
+- 所有API端点的详细说明
+- 请求参数和响应格式的详细文档
+- 在线测试API的功能
+- 可下载的OpenAPI规范
+
+更多信息请参考 [API文档说明](/backend/API_DOCS_README.md)
+
+#### 前端安装与构建
+
+1. 进入前端目录
+
+```bash
+cd frontend
+```
+
+2. 安装依赖
+
+```bash
+npm install
+```
+
+3. 开发模式运行
+
+```bash
+npm run serve
+```
+
+4. 构建生产版本
+
+```bash
+npm run build
+```
+
+构建后的文件将生成在`frontend-dist`目录中，后端服务会自动提供这些文件。
+
+## 主要功能
+
+- 股票价格和技术指标监控
+- 多种监控规则：RSI交叉、均线交叉、MACD交叉、价格突破、量价背离等
+- 告警通知（企业微信推送）
+- 股票数据可视化展示
+
+## 数据来源
+
+- 优先使用AKshare库获取行情数据
+- 备选方案：新浪财经API
+
+## 配置文件
+
+系统配置存储在`backend/monitor_config.json`文件中，包含：
+
+- 监控的股票列表
+- 监控规则和参数
+- 企业微信Webhook配置
+
+## 项目简介
+
+一款面向个人用户的轻量级股票交易信号监控工具，基于 Python、AKshare 与 Streamlit 实现。通过本地 Web 界面灵活配置监控条件，定时获取行情并评估技术指标，满足条件时自动向企业微信机器人推送告警。
 
 ## 功能特性
 
@@ -63,7 +217,7 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-浏览器访问 `http://localhost:8501`，即可开始配置与监控。
+启动后访问 http://localhost:5001 即可打开监控系统。
 
 ## 模块概览
 
