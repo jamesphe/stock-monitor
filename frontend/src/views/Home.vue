@@ -21,6 +21,7 @@
           @run-monitoring="runMonitoring"
           @show-chart="showStockChart"
           @set-chart-type="setChartType"
+          @run-strategy="runSingleStrategy"
         />
 
         <!-- 股票图表区域 -->
@@ -47,7 +48,13 @@
 
 <script>
 import { ref, reactive, onMounted } from 'vue'
-import { getConfig, saveConfig as apiSaveConfig, evaluateRules, getStockData } from '../api/stock'
+import { 
+  getConfig, 
+  saveConfig as apiSaveConfig, 
+  evaluateRules, 
+  getStockData,
+  evaluateSingleStrategy 
+} from '../api/stock'
 import ConfigPanel from '../components/ConfigPanel.vue'
 import AddMonitorPanel from '../components/AddMonitorPanel.vue'
 import StockListPanel from '../components/StockListPanel.vue'
@@ -163,6 +170,41 @@ export default {
         isRunningMonitor.value = false
       }
     }
+    
+    // 执行单个策略
+    const runSingleStrategy = async ({ stock, strategy }, callback) => {
+      try {
+        const result = await evaluateSingleStrategy({ stock, strategy })
+        // 如果策略执行成功触发，添加到告警历史
+        if (result.status === 'success') {
+          const alertData = {
+            stock_code: stock.code,
+            stock_name: stock.name,
+            strategy_name: strategy.strategy_name,
+            strategy_type: strategy.strategy_type,
+            trigger_time: new Date().toLocaleString(),
+            trigger_reason: result.details || '策略条件满足'
+          }
+          alerts.value = [alertData, ...alerts.value].slice(0, 50)
+        }
+        // 调用回调函数返回结果
+        if (typeof callback === 'function') {
+          callback(result)
+        }
+        return result
+      } catch (error) {
+        console.error('执行单个策略失败:', error)
+        const errorResult = {
+          status: 'error',
+          message: '执行策略失败',
+          details: error.message || '网络错误或服务器异常'
+        }
+        if (typeof callback === 'function') {
+          callback(errorResult)
+        }
+        return errorResult
+      }
+    }
 
     onMounted(() => {
       loadConfig()
@@ -183,7 +225,8 @@ export default {
       selectStock,
       showStockChart,
       setChartType,
-      runMonitoring
+      runMonitoring,
+      runSingleStrategy
     }
   }
 }

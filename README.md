@@ -283,3 +283,91 @@ streamlit run app.py
 - 持久化日志至数据库并完善异常处理
 - 添加权限管理与团队协作功能
 
+# 股票监控系统重构文档
+
+## 重构说明
+
+原系统是一个单文件的股票监控系统，所有功能都放在一个大文件中。通过本次重构，我们采用了面向对象和接口实现的方式，将各个规则提取到单独的文件中，使系统更加模块化，更容易扩展和维护。
+
+## 重构结构
+
+重构后的系统结构如下：
+
+```
+backend/
+├── monitor.py               # 原始监控模块
+├── monitor_refactored.py    # 重构后的入口文件
+└── rules/                   # 规则包
+    ├── __init__.py          # 包初始化文件
+    ├── base_rule.py         # 规则基类
+    ├── price_rule.py        # 价格相关规则
+    ├── volume_rule.py       # 成交量相关规则
+    ├── indicator_rule.py    # 技术指标相关规则
+    ├── rule_factory.py      # 规则工厂
+    └── rule_evaluator.py    # 规则评估器
+```
+
+## 主要改进
+
+1. **接口设计**：创建了`BaseRule`抽象基类，定义了规则实现的接口标准
+2. **规则模块化**：将各种不同类型的规则分离到不同文件中，便于维护
+3. **工厂模式**：实现了`RuleFactory`工厂类，用于创建具体规则实例
+4. **评估器**：实现了`RuleEvaluator`类，用于评估规则并生成报告
+5. **兼容性**：保持与原有系统的兼容性，不影响已有功能
+
+## 实现细节
+
+### 规则接口 (`BaseRule`)
+
+所有规则都实现了统一的接口，包括:
+- `check()` - 检查规则是否满足
+- `get_rule_name()` - 获取规则名称
+- `validate_params()` - 验证参数是否有效
+
+### 具体规则实现
+
+1. **价格规则**:
+   - `PriceAboveRule` - 价格连续高于指定水平
+   - `PriceBreakoutRule` - 价格突破指定高点或低点
+
+2. **成交量规则**:
+   - `VolumeAboveRule` - 成交量放大规则
+   - `VolumeThresholdRule` - 成交量阈值规则
+
+3. **技术指标规则**:
+   - `RSICrossRule` - RSI交叉规则
+   - `MACrossRule` - 均线交叉规则
+   - `MACDRule` - MACD指标规则
+
+### 规则工厂 (`RuleFactory`)
+
+`RuleFactory`负责根据规则类型和参数创建相应的规则实例，支持新旧配置格式。
+
+### 规则评估器 (`RuleEvaluator`)
+
+`RuleEvaluator`负责评估一组规则，并生成告警信息。
+
+## 使用方法
+
+新系统使用方法基本与原系统一致，但提供了更灵活的配置方式：
+
+```python
+from monitor_refactored import evaluate_rules
+
+# 加载并评估配置
+alerts = evaluate_rules()
+```
+
+## 未来扩展
+
+该重构为系统提供了更好的扩展性，可以轻松添加新的规则类型：
+
+1. 创建新的规则类，继承自`BaseRule`
+2. 实现必要的接口方法
+3. 在`RuleFactory`中注册新规则类
+
+## 参考
+
+- [原始监控模块](backend/monitor.py)
+- [重构后的入口](backend/monitor_refactored.py)
+

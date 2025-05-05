@@ -9,8 +9,10 @@ from monitor import (
     save_config, 
     evaluate_rules, 
     fetch_data,
-    AKSHARE_AVAILABLE
+    AKSHARE_AVAILABLE,
+    evaluate_single_strategy
 )
+import time
 
 
 # 配置日志
@@ -256,12 +258,12 @@ class StockDataResource(Resource):
                     "date": date_str,
                     "open": float(row["open"]) if "open" in df.columns else 0,
                     "high": float(row["high"]) if "high" in df.columns 
-                        else 0,
+                           else 0,
                     "low": float(row["low"]) if "low" in df.columns else 0,
                     "close": float(row["close"]) if "close" in df.columns 
-                        else 0,
+                            else 0,
                     "volume": float(row["volume"]) if "volume" in df.columns 
-                            else 0
+                             else 0
                 }
                 
                 # 单独处理RSI以避免行太长
@@ -288,82 +290,186 @@ class EvaluateResource(Resource):
     @ns.response(408, '处理超时')
     @ns.response(500, '服务器错误')
     def post(self):
-        """评估股票规则"""
-        logger.info("评估规则 - 开始处理请求")
+        """评估所有监控规则"""
+        logger.info("开始评估监控规则")
         try:
-            # 可以手动传入规则或使用配置文件中的规则
-            if api.payload and 'stocks' in api.payload:
-                config = api.payload
-                logger.debug(f"使用请求中的规则配置: {config}")
-                stocks_count = len(config.get('stocks', []))
-                logger.info(f"请求包含 {stocks_count} 只股票")
-                for idx, stock in enumerate(config.get('stocks', [])):
-                    stock_code = stock.get('code', '')
-                    stock_name = stock.get('name', '')
-                    logger.debug(
-                        f"股票 {idx+1}/{stocks_count}: {stock_code} {stock_name}"
-                    )
-            else:
-                config = load_config(
-                    os.path.join(current_dir, "monitor_config.json")
-                )
-                logger.debug("使用配置文件中的规则配置")
+            config = api.payload
+            logger.debug(f"收到配置: {config}")
             
-            # 添加超时处理
+            # 防止长时间阻塞，使用线程异步执行
             import threading
+            import queue
             
+            # 创建结果队列
+            result_queue = queue.Queue()
+            
+            # 评估工作线程
             def evaluation_worker():
-                nonlocal result, error_msg
                 try:
+                    # 执行规则评估
                     result = evaluate_rules(config)
+                    # 处理结果中的布尔值和其他不可序列化的字段
+                    processed_result = {"status": "success", "alerts": process_dict(result)}
+                    # 放入结果队列
+                    result_queue.put(processed_result)
                 except Exception as e:
+                    logger.error(f"评估规则失败: {e}")
                     import traceback
-                    error_msg = f"评估规则时发生错误: {str(e)}\n{traceback.format_exc()}"
-                    logger.error(error_msg)
+                    logger.error(traceback.format_exc())
+                    # 放入错误信息
+                    result_queue.put({"status": "error", "message": str(e)})
             
-            # 创建并启动评估线程
-            result = None
-            error_msg = None
+            # 启动评估线程
             worker_thread = threading.Thread(target=evaluation_worker)
             worker_thread.daemon = True
             worker_thread.start()
             
-            # 等待线程完成，最多等待60秒
-            worker_thread.join(timeout=60)
-            
-            if worker_thread.is_alive():
-                logger.warning("评估规则超时")
-                return {
-                    "status": "timeout",
-                    "message": "评估规则超时，请减少监控股票数量或稍后再试"
-                }, 408
-            
-            if error_msg:
-                ns.abort(500, error_msg)
-            
-            if result:
-                logger.info(f"评估完成，得到 {len(result.get('alerts', []))} 条告警")
+            # 等待结果, 超时处理
+            try:
+                # 最多等待30秒
+                result = result_queue.get(timeout=30)
+                logger.info(f"评估完成，结果: {result}")
                 return result
-            else:
-                ns.abort(500, "评估规则返回空结果")
+            except queue.Empty:
+                logger.error("评估超时")
+                ns.abort(408, "处理超时，请稍后查看结果")
+            
         except Exception as e:
-            logger.error(f"评估规则异常: {e}", exc_info=True)
-            ns.abort(500, f"评估规则异常: {str(e)}")
+            logger.error(f"评估规则失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            ns.abort(500, f"评估规则失败: {str(e)}")
+
+
+# API接口：评估单个策略
+@ns.route('/evaluate_strategy')
+class EvaluateStrategyResource(Resource):
+    @ns.doc(description='评估单个策略')
+    @ns.response(200, '成功')
+    @ns.response(408, '处理超时')
+    @ns.response(500, '服务器错误')
+    def post(self):
+        """评估单个监控策略"""
+        logger.info("开始评估单个策略")
+        try:
+            data = api.payload
+            logger.debug(f"收到数据: {data}")
+            
+            if not data or 'stock' not in data or 'strategy' not in data:
+                logger.error("请求数据格式错误，缺少必要字段")
+                ns.abort(400, "请求数据格式错误，缺少必要字段")
+            
+            stock = data['stock']
+            strategy = data['strategy']
+            # 详细程度: simple, normal, detailed
+            detail_level = data.get('detail_level', 'normal')
+            
+            # 防止长时间阻塞，使用线程异步执行
+            import threading
+            import queue
+            
+            # 创建结果队列
+            result_queue = queue.Queue()
+            
+            # 评估工作线程
+            def strategy_evaluation_worker():
+                try:
+                    # 使用monitor.py中的evaluate_single_strategy函数
+                    result = evaluate_single_strategy(stock, strategy, detail_level)
+                    # 处理结果中的布尔值和其他不可序列化的字段
+                    result = process_dict(result)
+                    # 放入结果队列
+                    result_queue.put(result)
+                except Exception as e:
+                    logger.error(f"评估单个策略失败: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                    # 放入错误信息
+                    result_queue.put({
+                        "status": "error", 
+                        "message": f"评估失败: {str(e)}",
+                        "timestamp": int(time.time() * 1000)
+                    })
+            
+            # 启动评估线程
+            worker_thread = threading.Thread(target=strategy_evaluation_worker)
+            worker_thread.daemon = True
+            worker_thread.start()
+            
+            # 等待结果, 超时处理
+            try:
+                # 最多等待15秒
+                result = result_queue.get(timeout=15)
+                logger.info(f"单个策略评估完成，结果: {result}")
+                return result
+            except queue.Empty:
+                logger.error("评估超时")
+                ns.abort(408, "处理超时，请稍后再试")
+            
+        except Exception as e:
+            logger.error(f"评估单个策略失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            ns.abort(500, f"评估单个策略失败: {str(e)}")
 
 
 def process_dict(item):
     """处理字典，确保所有值都可以被JSON序列化"""
     for key, value in list(item.items()):
-        if pd.isna(value):
-            item[key] = None
-        elif isinstance(value, (pd.Timestamp, pd.DatetimeIndex)):
-            item[key] = str(value)
-        elif isinstance(value, dict):
-            item[key] = process_dict(value)
-        elif isinstance(value, (list, tuple)):
-            item[key] = [
-                process_dict(x) if isinstance(x, dict) else x for x in value
-            ]
+        try:
+            # 处理None和NaN值
+            if value is None or (hasattr(value, 'isna') and value.isna().all()):
+                item[key] = None
+            # 处理单个NaN值
+            elif pd.api.types.is_scalar(value) and pd.isna(value):
+                item[key] = None
+            # 处理布尔值
+            elif isinstance(value, bool):
+                item[key] = 1 if value else 0
+            # 处理Pandas/NumPy对象
+            elif hasattr(value, 'dtype'):
+                # 适用于Pandas Series, DataFrame和NumPy数组
+                if pd.api.types.is_numeric_dtype(value):
+                    # 如果是数值型，转为列表
+                    item[key] = value.tolist() if hasattr(value, 'tolist') else float(value)
+                else:
+                    # 非数值型转为字符串
+                    item[key] = str(value)
+            # 处理日期时间对象
+            elif isinstance(value, (pd.Timestamp, pd.DatetimeIndex)):
+                item[key] = str(value)
+            # 递归处理字典
+            elif isinstance(value, dict):
+                item[key] = process_dict(value)
+            # 处理列表或元组
+            elif isinstance(value, (list, tuple)):
+                processed_list = []
+                for x in value:
+                    if isinstance(x, dict):
+                        processed_list.append(process_dict(x))
+                    elif x is True:
+                        processed_list.append(1)
+                    elif x is False:
+                        processed_list.append(0)
+                    # 处理单个NaN值
+                    elif pd.api.types.is_scalar(x) and pd.isna(x):
+                        processed_list.append(None)
+                    # 处理Pandas/NumPy对象
+                    elif hasattr(x, 'dtype'):
+                        if pd.api.types.is_numeric_dtype(x):
+                            processed_list.append(x.tolist() if hasattr(x, 'tolist') else float(x))
+                        else:
+                            processed_list.append(str(x))
+                    else:
+                        processed_list.append(x)
+                item[key] = processed_list
+        except Exception as e:
+            # 如果处理失败，转换为字符串
+            logger.warning(f"序列化{key}时出错：{e}，将值转换为字符串")
+            try:
+                item[key] = str(value)
+            except:
+                item[key] = "不可序列化的值"
     return item
 
 
